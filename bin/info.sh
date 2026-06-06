@@ -88,7 +88,7 @@ _print_link() {
   fi
   printf '\n'
 
-  printf '--- AmneziaWG (UDP) — основной путь ----------------------------------\n'
+  printf -- '--- AmneziaWG (UDP) — основной путь ----------------------------------\n'
   printf 'Приложение AmneziaWG. Один .conf = одно устройство, не шарьте конфиги.\n'
   for peer in "${AWG_PEERS[@]}"; do
     conf="${CLIENTS_DIR}/amneziawg-${peer}.conf"
@@ -100,35 +100,35 @@ _print_link() {
   done
   printf '\n'
 
-  printf '--- VLESS + Reality :%s (blacklist) — для Happ ------------------------\n' "${REALITY_PORT_BLACKLIST}"
+  printf -- '--- VLESS + Reality :%s (blacklist) — для Happ ------------------------\n' "${REALITY_PORT_BLACKLIST}"
   printf 'Основной путь для приложения Happ (нейтральный иностранный SNI).\n'
   for client in "${CLIENTS[@]}"; do
     _print_link "[${client}]" "${CLIENTS_DIR}/vless-reality-${client}.txt"
   done
   printf '\n'
 
-  printf '--- VLESS + Reality :%s (whitelist) — мобильные RU / ТСПУ -------------\n' "${REALITY_PORT_WHITELIST}"
+  printf -- '--- VLESS + Reality :%s (whitelist) — мобильные RU / ТСПУ -------------\n' "${REALITY_PORT_WHITELIST}"
   printf 'Переключайтесь сюда, когда основной перестаёт работать на мобильном.\n'
   for client in "${CLIENTS[@]}"; do
     _print_link "[${client}]" "${CLIENTS_DIR}/vless-whitelist-${client}.txt"
   done
   printf '\n'
 
-  printf '--- Telegram MTProto-прокси ------------------------------------------\n'
+  printf -- '--- Telegram MTProto-прокси ------------------------------------------\n'
   printf 'Откройте ссылку в Telegram (см. файл клиента целиком для t.me-зеркала).\n'
   for client in "${CLIENTS[@]}"; do
     _print_link "[${client}]" "${CLIENTS_DIR}/telegram-proxy-${client}.txt"
   done
   printf '\n'
 
-  printf '--- Какой файл -> какое приложение -----------------------------------\n'
+  printf -- '--- Какой файл -> какое приложение -----------------------------------\n'
   printf '  amneziawg-<peer>.conf      -> AmneziaWG (импорт конфига)\n'
   printf '  vless-reality-<client>.txt -> Happ / VLESS-Reality (основной, :%s)\n' "${REALITY_PORT_BLACKLIST}"
   printf '  vless-whitelist-<client>.txt -> VLESS-Reality (запасной, :%s)\n' "${REALITY_PORT_WHITELIST}"
   printf '  telegram-proxy-<client>.txt -> Telegram (MTProto-прокси)\n'
   printf '\n'
 
-  printf '--- Команды копирования (scp) ----------------------------------------\n'
+  printf -- '--- Команды копирования (scp) ----------------------------------------\n'
   ssh_user="${SUDO_USER:-root}"
   for peer in "${AWG_PEERS[@]}"; do
     printf '  scp %s@%s:%s/amneziawg-%s.conf .\n' "${ssh_user}" "${ip}" "${CLIENTS_DIR}" "${peer}"
