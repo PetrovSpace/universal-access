@@ -191,6 +191,12 @@ scp root@IP:/opt/access/clients/telegram-proxy-andrey.txt .
 ## 6. Если перестало работать
 
 Каналы независимы, поэтому почините по порядку — обычно хватает первого шага.
+Подробный разбор «подключается, но интернета нет» на сетях РФ (две болезни и их лечение,
+развенчанные мифы) — в [`docs/ru-dpi-troubleshooting.md`](docs/ru-dpi-troubleshooting.md).
+
+> Сначала переключись на **gRPC** (основной транспорт, `vless-grpc-<имя>.json`) — он обходит
+> детект почерка raw-TCP, который чаще всего и есть причина. Критерий, что канал жив, — крупная
+> загрузка (> 1 МБ) без обрыва, а НЕ «подключилось».
 
 **Шаг 1. Сменить SNI (быстрый ремонт VLESS-Reality).**
 Чаще всего «отваливается» конкретный SNI-домен, который начали резать. Поменяйте его на другой нейтральный — доступ восстанавливается:
@@ -273,3 +279,13 @@ sudo ./bin/update.sh
 ```bash
 scp -r root@IP:/opt/access/clients/ .
 ```
+
+---
+
+## Документация
+
+- [`docs/architecture.md`](docs/architecture.md) — каналы, транспорты, почему gRPC основной, план Б (РФ-релей).
+- [`docs/ru-dpi-troubleshooting.md`](docs/ru-dpi-troubleshooting.md) — диагностика обхода ТСПУ РФ: две болезни, лечение, мифы.
+- [`docs/testing.md`](docs/testing.md) — как тестировать из РФ (критерий успеха, методика).
+- [`docs/development.md`](docs/development.md) — грабли bash под `set -euo pipefail`, конфиги Xray, состояние.
+- [`CHANGELOG.md`](CHANGELOG.md) — история изменений.
