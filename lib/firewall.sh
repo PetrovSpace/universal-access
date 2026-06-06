@@ -81,7 +81,7 @@ _firewall_setup_nftables() {
   for p in "${tcp_ports[@]}"; do
     found=0
     for s in "${seen[@]:-}"; do [[ "$s" == "$p" ]] && { found=1; break; }; done
-    [[ $found -eq 0 ]] && { tcp_uniq+=("$p"); seen+=("$p"); }
+    if [[ $found -eq 0 ]]; then tcp_uniq+=("$p"); seen+=("$p"); fi
   done
 
   local tcp_set udp_set

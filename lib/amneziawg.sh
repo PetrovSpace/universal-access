@@ -256,8 +256,11 @@ _awg_obfuscation_block() {
   for v in 1 2 3 4 5; do
     local name="AWG_I${v}" val
     val="${!name:-}"
-    [[ -n "${val}" ]] && printf 'I%s = %s\n' "${v}" "${val}"
+    # ВАЖНО: `if`, а НЕ `[[ ]] && printf`. На последней итерации (I5 пуст) `&&`
+    # вернул бы 1 → функция вернула бы 1 → голый вызов под set -e убил бы скрипт.
+    if [[ -n "${val}" ]]; then printf 'I%s = %s\n' "${v}" "${val}"; fi
   done
+  return 0
 }
 
 # --- Генерация серверного awg0.conf из state ---------------------------------

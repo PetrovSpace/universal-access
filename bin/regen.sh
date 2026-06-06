@@ -13,7 +13,7 @@ _self="${BASH_SOURCE[0]}"
 while [[ -L "$_self" ]]; do
   _dir="$(cd -P "$(dirname "$_self")" >/dev/null 2>&1 && pwd)"
   _self="$(readlink "$_self")"
-  [[ "$_self" != /* ]] && _self="${_dir}/${_self}"
+  if [[ "$_self" != /* ]]; then _self="${_dir}/${_self}"; fi
 done
 BIN_DIR="$(cd -P "$(dirname "$_self")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -P "${BIN_DIR}/.." >/dev/null 2>&1 && pwd)"
