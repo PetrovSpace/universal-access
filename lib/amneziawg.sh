@@ -168,19 +168,38 @@ _awg_rand_int() { awk -v lo="$1" -v hi="$2" 'BEGIN{srand(); print int(lo + rand(
 _awg_init_obfuscation() {
   # Параметры хранятся в state: если уже есть — переиспользуем (стабильность
   # между ранами); если нет — генерируем случайные (не дефолт 0/1/2/3/4).
-  local key val changed=0
-  for key in s1 s2; do
-    if [[ -z "$(state_get "awg_obf_${key}")" ]]; then
-      state_set "awg_obf_${key}" "$(_awg_rand_int 15 150)"
-      changed=1
-    fi
-  done
-  for key in h1 h2 h3 h4; do
-    if [[ -z "$(state_get "awg_obf_${key}")" ]]; then
-      state_set "awg_obf_${key}" "$(_awg_rand_int 100000 4294967295)"
-      changed=1
-    fi
-  done
+  local changed=0
+
+  # S1, S2: ненулевые, диапазон 15-150.
+  # Правило: S1 + 56 ≠ S2 (иначе init и response пакеты одного размера — DPI заметит).
+  if [[ -z "$(state_get awg_obf_s1)" ]]; then
+    local s1 s2
+    s1=$(_awg_rand_int 15 150)
+    s2=$(_awg_rand_int 15 150)
+    # Гарантируем S1+56 ≠ S2; сдвигаем S2 на 1 при совпадении.
+    [[ $((s1 + 56)) -eq $s2 ]] && s2=$(( s2 % 150 + 1 ))
+    state_set awg_obf_s1 "$s1"
+    state_set awg_obf_s2 "$s2"
+    changed=1
+  fi
+
+  # H1-H4: уникальные uint32 в [100000, 2147483647].
+  # Верхняя граница — INT32_MAX: Windows-клиент Amnezia отвергает значения выше.
+  # Go-клиент проверяет непересечение; генерируем с гарантией уникальности.
+  if [[ -z "$(state_get awg_obf_h1)" ]]; then
+    local used=() val taken idx
+    for idx in h1 h2 h3 h4; do
+      taken=1
+      while [[ $taken -eq 1 ]]; do
+        val=$(_awg_rand_int 100000 2147483647)
+        taken=0
+        local u; for u in "${used[@]:-}"; do [[ "$val" == "$u" ]] && taken=1 && break; done
+      done
+      used+=("$val")
+      state_set "awg_obf_${idx}" "$val"
+    done
+    changed=1
+  fi
 
   AWG_S1="$(state_get awg_obf_s1)"; AWG_S2="$(state_get awg_obf_s2)"
   AWG_H1="$(state_get awg_obf_h1)"; AWG_H2="$(state_get awg_obf_h2)"
