@@ -100,8 +100,12 @@ _awg_install_packages() {
     try_packages linux-headers-generic || true
     # Принудительная пересборка модуля DKMS, если пакет dkms знает о нём.
     if command -v dkms >/dev/null 2>&1; then
-      local ver
-      ver=$(dkms status 2>/dev/null | awk -F'[,/ ]+' '/amneziawg/{print $2; exit}')
+      # ВАЖНО: НЕ `dkms status | awk …exit` — awk закрывает пайп рано, dkms ловит
+      # SIGPIPE, и под pipefail+set -e скрипт молча падает (dkms status многострочный).
+      # Захватываем вывод, парсим через here-string — пайпа нет, SIGPIPE невозможен.
+      local ver dkms_st
+      dkms_st=$(dkms status 2>/dev/null) || dkms_st=''
+      ver=$(awk -F'[,/ ]+' '/amneziawg/{print $2; exit}' <<<"$dkms_st")
       if [[ -n "${ver:-}" ]]; then
         dkms autoinstall >/dev/null 2>&1 || dkms install -m amneziawg -v "${ver}" >/dev/null 2>&1 || true
       fi

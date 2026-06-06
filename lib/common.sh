@@ -124,9 +124,16 @@ detect_public_ip() {
 
 # --- Определение сетевого интерфейса по умолчанию ----------------------------
 detect_default_iface() {
-  local iface
-  iface=$(ip -4 route show default 2>/dev/null | awk '/default/ {for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
-  [[ -z "$iface" ]] && iface=$(ip route show default 2>/dev/null | awk '/default/ {for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
+  # ВАЖНО: парсим вывод через here-string, а НЕ `ip route | awk`. awk с exit
+  # закрывает пайп рано → ip ловит SIGPIPE → под pipefail+set -e это молча
+  # убивает скрипт (классический баг). Сначала захватываем вывод, потом парсим.
+  local iface routes
+  routes=$(ip -4 route show default 2>/dev/null) || routes=''
+  iface=$(awk '/default/ {for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"$routes")
+  if [[ -z "$iface" ]]; then
+    routes=$(ip route show default 2>/dev/null) || routes=''
+    iface=$(awk '/default/ {for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"$routes")
+  fi
   [[ -n "$iface" ]] || die "Не удалось определить сетевой интерфейс по умолчанию."
   DEFAULT_IFACE="$iface"
   export DEFAULT_IFACE
