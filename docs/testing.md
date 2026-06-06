@@ -20,10 +20,10 @@
 ## Быстрая проверка с РФ-вантажа (VPS/устройство в РФ)
 
 Портативный headless-клиент Xray (SOCKS) + сравнение прямого и туннельного доступа —
-скрипт `ru-vantage-test.sh` в корне репозитория:
+скрипт `tools/ru-vantage-test.sh`:
 
 ```bash
-./ru-vantage-test.sh 'vless://...ссылка...' https://www.instagram.com
+./tools/ru-vantage-test.sh 'vless://...ссылка...' https://www.instagram.com
 ```
 
 Он поднимает временный SOCKS на Xray и показывает:
