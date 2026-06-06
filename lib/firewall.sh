@@ -92,6 +92,15 @@ _firewall_setup_nftables() {
   local conf=/etc/nftables-access.conf
   local ssh_port; ssh_port=$(firewall_detect_ssh_port)
 
+  # NAT (masquerade) для подсети AmneziaWG: без него форвард есть, но пакеты клиентов
+  # уходят с приватным src (10.13.13.x) → ответы не возвращаются (нет интернета в туннеле).
+  # ВАЖНО: держим masquerade в НАШЕЙ nft-таблице, а не в PostUp awg-quick (iptables) —
+  # иначе `systemctl restart nftables` (flush ruleset) сносит его при каждом install.
+  local awg_subnet wan_if
+  awg_subnet="${AWG_SUBNET:-10.13.13.0/24}"
+  wan_if="$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')"
+  [[ -n "$wan_if" ]] || wan_if=eth0
+
   # Генерируем отдельную таблицу 'access' — не трогаем чужие правила.
   # Политика input drop, но СНАЧАЛА разрешаем established/related и loopback,
   # поэтому текущая SSH-сессия гарантированно переживает применение.
@@ -114,6 +123,10 @@ _firewall_setup_nftables() {
     printf '    chain forward {\n'
     # Форвардинг разрешаем (трафик клиентов VPN ходит наружу).
     printf '        type filter hook forward priority 0; policy accept;\n'
+    printf '    }\n'
+    printf '    chain postrouting {\n'
+    printf '        type nat hook postrouting priority srcnat; policy accept;\n'
+    printf '        ip saddr %s oifname "%s" masquerade\n' "$awg_subnet" "$wan_if"
     printf '    }\n'
     printf '}\n'
   } >"$conf" || { log_warn "Не удалось записать ${conf} — переключаюсь на ufw."; return 1; }

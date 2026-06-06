@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-06 — fix: NAT для AmneziaWG в управляемом nftables-ruleset
+
+### Исправлено
+- **AmneziaWG-клиенты не получали интернет** (хендшейк есть, трафик не ходит, DNS/сайты не
+  открываются, роутер реконнектится каждые 1-2 мин). Корень: masquerade для подсети AWG жил
+  только в `PostUp` awg-quick (iptables), а `_firewall_setup_nftables` в конце делает
+  `systemctl restart nftables` → `/etc/nftables.conf` начинается с `flush ruleset` и сносит
+  `table ip nat` с этим masquerade. После каждого `install.sh` NAT для AWG отваливался.
+  Симптом в `awg show`: много `received`, почти ноль `sent` (сервер не генерит обратный трафик).
+- Фикс: masquerade теперь в НАШЕЙ таблице `table inet access` (chain postrouting, `srcnat`),
+  WAN-интерфейс определяется по default-маршруту. Переживает `restart nftables` и пересборки.
+
 ## 2026-06-06 — Реорганизация: операторские скрипты в git, личное в local/
 
 ### Добавлено
