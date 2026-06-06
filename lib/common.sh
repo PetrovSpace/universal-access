@@ -295,7 +295,7 @@ load_config() {
   done
 
   # Клиенты и устройства (массивы — задаём только если не определены).
-  if ! declare -p CLIENTS >/dev/null 2>&1; then CLIENTS=("andrey" "wife"); fi
+  if ! declare -p CLIENTS >/dev/null 2>&1; then CLIENTS=("main" "second"); fi
   if ! declare -p AWG_PEERS >/dev/null 2>&1; then AWG_PEERS=("mac" "keenetic" "windows"); fi
 
   # AmneziaWG.

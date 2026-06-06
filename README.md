@@ -72,7 +72,7 @@ sudo ./install.sh
 
 ```bash
 # Кто пользуется VLESS-Reality и Telegram-прокси (добавление = дописать в массив).
-CLIENTS=("andrey" "wife")
+CLIENTS=("main" "second")
 
 # Устройства AmneziaWG: на каждое — отдельный .conf (один conf = одно устройство).
 AWG_PEERS=("mac" "keenetic" "windows")
@@ -136,7 +136,7 @@ scp root@IP:/opt/access/clients/amneziawg-mac.conf .
 Запасной путь — VLESS-Reality через **Happ**:
 
 ```bash
-scp root@IP:/opt/access/clients/vless-reality-andrey.txt .
+scp root@IP:/opt/access/clients/vless-reality-<имя>.txt .
 ```
 
 1. Откройте файл, скопируйте строку `vless://...` в буфер обмена.
@@ -176,15 +176,15 @@ scp root@IP:/opt/access/clients/amneziawg-windows.conf .
 1. Установите **AmneziaVPN** для Windows (amnezia.org).
 2. Добавить конфигурацию → импортировать `amneziawg-windows.conf` → подключиться.
 
-### Telegram (он и жена)
+### Telegram
 
 ```bash
-scp root@IP:/opt/access/clients/telegram-proxy-andrey.txt .
+scp root@IP:/opt/access/clients/telegram-proxy-<имя>.txt .
 ```
 
 В файле две ссылки. Проще всего открыть на телефоне ссылку вида `https://t.me/proxy?server=...` — Telegram сам предложит включить прокси. Альтернатива — `tg://proxy?server=...&port=...&secret=ee...` для ручного импорта в приложение.
 
-> **Важно про MTProto-секрет.** `mtg` v2 поддерживает ровно один секрет на сервер, поэтому **Telegram-прокси использует общий секрет для всех клиентов** (`andrey` и `wife`). Файлы `telegram-proxy-<имя>.txt` различаются только именем, ссылка внутри одинаковая и рабочая. Следствие: `regen.sh <client>` перевыпускает этот общий секрет **для всех** (старые Telegram-ссылки перестают работать у обоих — нужно раздать новые). VLESS-Reality, наоборот, имеет отдельный ключ на каждого клиента и ротируется изолированно.
+> **Важно про MTProto-секрет.** `mtg` v2 поддерживает ровно один секрет на сервер, поэтому **Telegram-прокси использует общий секрет для всех клиентов**. Файлы `telegram-proxy-<имя>.txt` различаются только именем, ссылка внутри одинаковая и рабочая. Следствие: `regen.sh <client>` перевыпускает этот общий секрет **для всех** (старые Telegram-ссылки перестают работать у обоих — нужно раздать новые). VLESS-Reality, наоборот, имеет отдельный ключ на каждого клиента и ротируется изолированно.
 
 ---
 
@@ -212,7 +212,7 @@ sudo ./bin/set-sni.sh blacklist www.cloudflare.com
 Если основной путь на 443 не идёт именно с мобильного интернета — используйте ссылку из `vless-whitelist-<имя>.txt` (инбаунд 8443 с разрешённым RU-SNI):
 
 ```bash
-scp root@IP:/opt/access/clients/vless-whitelist-andrey.txt .
+scp root@IP:/opt/access/clients/vless-whitelist-<имя>.txt .
 ```
 
 При необходимости тем же `set-sni.sh whitelist <домен>` смените и whitelist-SNI на другой разрешённый ресурс.
@@ -239,7 +239,7 @@ sudo ./bin/info.sh
 **Перевыпустить ключи одного клиента или устройства** (если ключ утёк). Трогает только указанного — остальные не меняются:
 
 ```bash
-sudo ./bin/regen.sh andrey     # клиент: новый VLESS-UUID + MTProto-секрет
+sudo ./bin/regen.sh <имя>      # клиент: новый VLESS-UUID + MTProto-секрет
 sudo ./bin/regen.sh mac        # устройство: новые ключи AmneziaWG
 ```
 
