@@ -201,7 +201,10 @@ _xray_client_uuid() {
 # ---------------------------------------------------------------------------
 _xray_build_config() {
   local tmp clients_json client uuid
-  tmp="$(mktemp)" || die "mktemp не сработал."
+  # Суффикс .json ОБЯЗАТЕЛЕН: `xray run -test -config FILE` определяет формат
+  # по расширению; без .json — «Failed to get format» и тест валится.
+  tmp="$(mktemp --suffix=.json)" || tmp="$(mktemp)" || die "mktemp не сработал."
+  case "$tmp" in *.json) ;; *) mv -f "$tmp" "$tmp.json" && tmp="$tmp.json" ;; esac
 
   # Массив clients (один и тот же набор клиентов на оба inbound'а).
   clients_json='[]'
