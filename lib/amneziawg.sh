@@ -161,6 +161,61 @@ _awg_server_keys() {
 
 _awg_genkey() { awg genkey; }
 
+# --- Случайное целое в диапазоне [MIN, MAX] (awk, без внешних зависимостей) ---
+_awg_rand_int() { awk -v lo="$1" -v hi="$2" 'BEGIN{srand(); print int(lo + rand()*(hi-lo+1))}'; }
+
+# --- Инициализация параметров обфускации (из state или случайные) --------------
+_awg_init_obfuscation() {
+  # Параметры хранятся в state: если уже есть — переиспользуем (стабильность
+  # между ранами); если нет — генерируем случайные (не дефолт 0/1/2/3/4).
+  local key val changed=0
+  for key in s1 s2; do
+    if [[ -z "$(state_get "awg_obf_${key}")" ]]; then
+      state_set "awg_obf_${key}" "$(_awg_rand_int 15 150)"
+      changed=1
+    fi
+  done
+  for key in h1 h2 h3 h4; do
+    if [[ -z "$(state_get "awg_obf_${key}")" ]]; then
+      state_set "awg_obf_${key}" "$(_awg_rand_int 100000 4294967295)"
+      changed=1
+    fi
+  done
+
+  AWG_S1="$(state_get awg_obf_s1)"; AWG_S2="$(state_get awg_obf_s2)"
+  AWG_H1="$(state_get awg_obf_h1)"; AWG_H2="$(state_get awg_obf_h2)"
+  AWG_H3="$(state_get awg_obf_h3)"; AWG_H4="$(state_get awg_obf_h4)"
+  export AWG_S1 AWG_S2 AWG_H1 AWG_H2 AWG_H3 AWG_H4
+
+  if [[ $changed -eq 1 ]]; then
+    log_info "AmneziaWG: сгенерированы новые параметры обфускации (S1=${AWG_S1} S2=${AWG_S2} H1=${AWG_H1} H2=${AWG_H2} H3=${AWG_H3} H4=${AWG_H4})."
+  else
+    log_info "AmneziaWG: параметры обфускации из state (S1=${AWG_S1} S2=${AWG_S2})."
+  fi
+
+  _awg_write_config_env
+}
+
+# --- Запись/обновление config.env с актуальными параметрами -------------------
+_awg_write_config_env() {
+  local cfg="${SRC_DIR}/config.env"
+  local tmp; tmp=$(mktemp) || die "mktemp не удался (config.env)."
+  {
+    printf '# config.env — сгенерирован автоматически awg_install, правки сохранятся.\n'
+    printf 'CLIENTS=(%s)\n' "$(printf '"%s" ' "${CLIENTS[@]}")"
+    printf 'AWG_PEERS=(%s)\n' "$(printf '"%s" ' "${AWG_PEERS[@]}")"
+    printf 'AWG_S1=%s\n'  "${AWG_S1}"
+    printf 'AWG_S2=%s\n'  "${AWG_S2}"
+    printf 'AWG_H1=%s\n'  "${AWG_H1}"
+    printf 'AWG_H2=%s\n'  "${AWG_H2}"
+    printf 'AWG_H3=%s\n'  "${AWG_H3}"
+    printf 'AWG_H4=%s\n'  "${AWG_H4}"
+  } >"$tmp"
+  install -m 0600 "$tmp" "$cfg" || die "Не удалось записать ${cfg}."
+  rm -f "$tmp"
+  log_ok "config.env обновлён: ${cfg}"
+}
+
 # --- Адресация сервера/пиров из AWG_SUBNET -----------------------------------
 _awg_net_setup() {
   # Из AWG_SUBNET (CIDR) выводим базу /24 и маску. Сервер = .1.
@@ -369,6 +424,10 @@ awg_install() {
   #    На рестарте интерфейс уже может слушать сохранённый порт — это не повод
   #    его сдвигать, иначе ранее выданные клиентские .conf перестанут совпадать.
   _awg_resolve_port
+
+  # 0b) Параметры обфускации: из state (стабильно) или случайные при первом запуске.
+  #     Записывает config.env с CLIENTS/AWG_PEERS + параметрами обфускации.
+  _awg_init_obfuscation
 
   # 1) Пакеты + датаплейн с цепочкой фолбэка (никогда не прерывает install).
   _awg_install_packages
