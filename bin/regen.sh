@@ -71,7 +71,9 @@ _regen_client() {
 
   # Заодно удаляем устаревшие клиентские артефакты — *_install перезапишет их
   # уже с новыми значениями для этого клиента.
-  rm -f "${CLIENTS_DIR}/vless-reality-${name}.txt" \
+  rm -f "${CLIENTS_DIR}/vless-grpc-${name}.txt" \
+        "${CLIENTS_DIR}/vless-grpc-${name}.json" \
+        "${CLIENTS_DIR}/vless-reality-${name}.txt" \
         "${CLIENTS_DIR}/vless-whitelist-${name}.txt" \
         "${CLIENTS_DIR}/telegram-proxy-${name}.txt" 2>/dev/null || true
 
@@ -80,7 +82,7 @@ _regen_client() {
   xray_install
   mtproto_install
 
-  log_ok "Клиент '${name}' перевыпущен. Файлы: ${CLIENTS_DIR}/vless-reality-${name}.txt, ${CLIENTS_DIR}/vless-whitelist-${name}.txt, ${CLIENTS_DIR}/telegram-proxy-${name}.txt"
+  log_ok "Клиент '${name}' перевыпущен. Основной: ${CLIENTS_DIR}/vless-grpc-${name}.txt (+.json). План Б: ${CLIENTS_DIR}/vless-reality-${name}.txt, ${CLIENTS_DIR}/vless-whitelist-${name}.txt. TG: ${CLIENTS_DIR}/telegram-proxy-${name}.txt"
 }
 
 # --- Перевыпуск AWG-пира (ключи устройства) ----------------------------------

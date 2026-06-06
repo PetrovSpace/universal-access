@@ -8,18 +8,19 @@
 
 ## 1. Что это и какие протоколы поднимаются
 
-Скрипт превращает свежий VPS в сервер с четырьмя независимыми каналами доступа, которые работают **параллельно** под `systemd`:
+Скрипт превращает свежий VPS в сервер с несколькими независимыми каналами доступа, которые работают **параллельно** под `systemd`:
 
 | # | Протокол | Порт | Назначение |
 |---|----------|------|------------|
-| 1 | **AmneziaWG 2.0** (UDP) | `51820/udp` | Основной путь. Обфусцированный WireGuard, отдельный `.conf` на каждое устройство. |
-| 2 | **VLESS + Reality** (TCP, blacklist) | `443/tcp` | Для приложения Happ. SNI — нейтральный иностранный домен. |
-| 3 | **VLESS + Reality** (TCP, whitelist) | `8443/tcp` | Запасной путь для мобильных операторов РФ / ТСПУ. SNI — разрешённый российский ресурс. |
-| 4 | **MTProto-прокси** (mtg, fake-TLS) | `8888/tcp` | Прокси для Telegram, маскировка под нейтральный домен. |
+| 1 | **VLESS + Reality gRPC** (TCP) | `2053/tcp` | **ОСНОВНОЙ** путь для Happ. gRPC обходит детект почерка raw-TCP абонентским/мобильным DPI РФ (проверено вживую). Клиенту даётся `.json` со split-routing (RU-сайты напрямую). |
+| 2 | **AmneziaWG 2.0** (UDP) | `51820/udp` | Обфусцированный WireGuard — на сетях, где открыт UDP. Отдельный `.conf` на устройство. |
+| 3 | **VLESS + Reality** (TCP, blacklist) | `443/tcp` | **План Б** (raw-TCP). SNI — нейтральный иностранный домен. |
+| 4 | **VLESS + Reality** (TCP, whitelist) | `8443/tcp` | **План Б** для мобильных РФ / ТСПУ. SNI — разрешённый российский ресурс. |
+| 5 | **MTProto-прокси** (mtg, fake-TLS) | `8888/tcp` | Прокси для Telegram, маскировка под нейтральный домен. |
 
 Опционально (по умолчанию выключено): **Hysteria2** (UDP) — для скорости и игр.
 
-Идея простая: основной канал — AmneziaWG. Если на конкретном устройстве он не работает — есть VLESS-Reality на 443 (Happ), а если режут и его на мобильном — whitelist-ссылка на 8443. Эти пути независимы и подстраховывают друг друга.
+Идея простая: основной канал — **VLESS-Reality поверх gRPC** (порт 2053): на практике именно он переживает жёсткий абонентский/мобильный DPI РФ, когда raw-TCP-Reality «подключается, но данные не идут». Если gRPC где-то не пройдёт — есть AmneziaWG (UDP) и raw-TCP Reality на 443/8443 (план Б). Все пути независимы и подстраховывают друг друга.
 
 ---
 
@@ -77,10 +78,12 @@ CLIENTS=("andrey" "wife")
 AWG_PEERS=("mac" "keenetic" "windows")
 
 # Порты (при занятости скрипт сам возьмёт следующий свободный).
-REALITY_PORT_BLACKLIST=443      # основной VLESS-Reality (Happ)
-REALITY_PORT_WHITELIST=8443     # запасной VLESS-Reality (моб. РФ / ТСПУ)
+REALITY_PORT_GRPC=2053          # ОСНОВНОЙ VLESS-Reality gRPC (обходит DPI РФ)
+REALITY_PORT_BLACKLIST=443      # план Б: raw-TCP VLESS-Reality (Happ)
+REALITY_PORT_WHITELIST=8443     # план Б: raw-TCP (моб. РФ / ТСПУ)
 AWG_PORT=51820                  # AmneziaWG (UDP)
 MTPROTO_PORT=8888               # Telegram MTProto
+GRPC_SERVICE_NAME=grpc          # имя gRPC-сервиса (совпадает у сервера и клиента)
 
 # SNI для blacklist: иностранный нейтральный домен с TLS 1.3 + HTTP/2. Берётся первый валидный.
 REALITY_SNI_BLACKLIST=("www.microsoft.com" "www.cloudflare.com" "www.amazon.com")
@@ -112,9 +115,11 @@ ENABLE_HYSTERIA2=false
 
 | Файл | Приложение |
 |------|-----------|
-| `amneziawg-<устройство>.conf` | AmneziaVPN (один `.conf` = одно устройство) |
-| `vless-reality-<имя>.txt` | Happ / VLESS-Reality (основной, 443) |
-| `vless-whitelist-<имя>.txt` | тот же клиент, если основной встал на мобильном (8443) |
+| `vless-grpc-<имя>.json` | **Happ (ОСНОВНОЙ)** — gRPC + split-routing (RU-сайты напрямую) |
+| `vless-grpc-<имя>.txt` | та же gRPC-ссылка без split-routing |
+| `vless-reality-<имя>.txt` | план Б: raw-TCP VLESS-Reality (443) |
+| `vless-whitelist-<имя>.txt` | план Б: raw-TCP, моб. РФ / ТСПУ (8443) |
+| `amneziawg-<устройство>.conf` | AmneziaVPN (один `.conf` = одно устройство; нужен открытый UDP) |
 | `telegram-proxy-<имя>.txt` | Telegram (ссылка tg:// и t.me/proxy) |
 
 ### Mac

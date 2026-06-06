@@ -49,6 +49,7 @@ mtproto_port="$(state_get mtproto_port)"
 [[ -z "${mtproto_port}" ]] && mtproto_port="${MTPROTO_PORT}"
 awg_port="$(state_get awg_port)"
 [[ -z "${awg_port}" ]] && awg_port="${AWG_PORT}"
+grpc_port="${REALITY_PORT_GRPC:-2053}"
 
 # SNI: предпочитаем сохранённые в state значения (фактически применённые).
 sni_bl="$(state_get xray_sni_blacklist)"
@@ -79,9 +80,10 @@ _print_link() {
   printf ' UNIVERSAL ACCESS — СВОДКА ДОСТУПА (пересобрано info.sh)\n'
   printf '======================================================================\n'
   printf 'Сервер:        %s\n' "${ip}"
-  printf 'AmneziaWG:     %s:%s/udp\n' "${ip}" "${awg_port}"
-  printf 'VLESS Reality: %s:%s (blacklist, SNI %s)\n' "${ip}" "${REALITY_PORT_BLACKLIST}" "${sni_bl}"
-  printf 'VLESS Reality: %s:%s (whitelist, SNI %s)\n' "${ip}" "${REALITY_PORT_WHITELIST}" "${sni_wl}"
+  printf 'VLESS gRPC:    %s:%s (ОСНОВНОЙ, SNI %s) — обходит DPI РФ\n' "${ip}" "${grpc_port}" "${sni_bl}"
+  printf 'AmneziaWG:     %s:%s/udp (на сетях с открытым UDP)\n' "${ip}" "${awg_port}"
+  printf 'VLESS Reality: %s:%s (ПЛАН Б blacklist, SNI %s)\n' "${ip}" "${REALITY_PORT_BLACKLIST}" "${sni_bl}"
+  printf 'VLESS Reality: %s:%s (ПЛАН Б whitelist, SNI %s)\n' "${ip}" "${REALITY_PORT_WHITELIST}" "${sni_wl}"
   printf 'MTProto (TG):  %s:%s (маскировка %s)\n' "${ip}" "${mtproto_port}" "${MTPROTO_MASK_DOMAIN}"
   if [[ "${ENABLE_HYSTERIA2}" == "true" ]]; then
     printf 'Hysteria2:     %s:%s/udp\n' "${ip}" "${HYSTERIA2_PORT}"
@@ -100,15 +102,22 @@ _print_link() {
   done
   printf '\n'
 
-  printf -- '--- VLESS + Reality :%s (blacklist) — для Happ ------------------------\n' "${REALITY_PORT_BLACKLIST}"
-  printf 'Основной путь для приложения Happ (нейтральный иностранный SNI).\n'
+  printf -- '--- VLESS + Reality gRPC :%s — ОСНОВНОЙ путь (Happ) -------------------\n' "${grpc_port}"
+  printf 'Импортируй .json (split-routing) или .txt-ссылку. Обходит DPI РФ.\n'
+  for client in "${CLIENTS[@]}"; do
+    _print_link "[${client}]" "${CLIENTS_DIR}/vless-grpc-${client}.txt"
+  done
+  printf '\n'
+
+  printf -- '--- VLESS + Reality :%s (ПЛАН Б blacklist, raw-TCP) -------------------\n' "${REALITY_PORT_BLACKLIST}"
+  printf 'Резерв, если gRPC перестанет работать.\n'
   for client in "${CLIENTS[@]}"; do
     _print_link "[${client}]" "${CLIENTS_DIR}/vless-reality-${client}.txt"
   done
   printf '\n'
 
-  printf -- '--- VLESS + Reality :%s (whitelist) — мобильные RU / ТСПУ -------------\n' "${REALITY_PORT_WHITELIST}"
-  printf 'Переключайтесь сюда, когда основной перестаёт работать на мобильном.\n'
+  printf -- '--- VLESS + Reality :%s (ПЛАН Б whitelist, raw-TCP) — моб. RU ---------\n' "${REALITY_PORT_WHITELIST}"
+  printf 'Резерв для мобильных RU/ТСПУ.\n'
   for client in "${CLIENTS[@]}"; do
     _print_link "[${client}]" "${CLIENTS_DIR}/vless-whitelist-${client}.txt"
   done
@@ -122,9 +131,11 @@ _print_link() {
   printf '\n'
 
   printf -- '--- Какой файл -> какое приложение -----------------------------------\n'
-  printf '  amneziawg-<peer>.conf      -> AmneziaWG (импорт конфига)\n'
-  printf '  vless-reality-<client>.txt -> Happ / VLESS-Reality (основной, :%s)\n' "${REALITY_PORT_BLACKLIST}"
-  printf '  vless-whitelist-<client>.txt -> VLESS-Reality (запасной, :%s)\n' "${REALITY_PORT_WHITELIST}"
+  printf '  vless-grpc-<client>.json   -> Happ ОСНОВНОЙ (gRPC + split-routing, :%s)\n' "${grpc_port}"
+  printf '  vless-grpc-<client>.txt    -> та же gRPC-ссылка без split-routing\n'
+  printf '  vless-reality-<client>.txt -> ПЛАН Б raw-TCP (:%s)\n' "${REALITY_PORT_BLACKLIST}"
+  printf '  vless-whitelist-<client>.txt -> ПЛАН Б raw-TCP моб. RU (:%s)\n' "${REALITY_PORT_WHITELIST}"
+  printf '  amneziawg-<peer>.conf      -> AmneziaWG (нужен открытый UDP)\n'
   printf '  telegram-proxy-<client>.txt -> Telegram (MTProto-прокси)\n'
   printf '\n'
 
@@ -134,6 +145,8 @@ _print_link() {
     printf '  scp %s@%s:%s/amneziawg-%s.conf .\n' "${ssh_user}" "${ip}" "${CLIENTS_DIR}" "${peer}"
   done
   for client in "${CLIENTS[@]}"; do
+    printf '  scp %s@%s:%s/vless-grpc-%s.json .\n' "${ssh_user}" "${ip}" "${CLIENTS_DIR}" "${client}"
+    printf '  scp %s@%s:%s/vless-grpc-%s.txt .\n' "${ssh_user}" "${ip}" "${CLIENTS_DIR}" "${client}"
     printf '  scp %s@%s:%s/vless-reality-%s.txt .\n' "${ssh_user}" "${ip}" "${CLIENTS_DIR}" "${client}"
     printf '  scp %s@%s:%s/vless-whitelist-%s.txt .\n' "${ssh_user}" "${ip}" "${CLIENTS_DIR}" "${client}"
     printf '  scp %s@%s:%s/telegram-proxy-%s.txt .\n' "${ssh_user}" "${ip}" "${CLIENTS_DIR}" "${client}"

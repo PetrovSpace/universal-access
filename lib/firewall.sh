@@ -52,6 +52,7 @@ _firewall_collect_ports() {
 
   _tcp_ref=(
     "$ssh_port"
+    "${REALITY_PORT_GRPC:-2053}"
     "${REALITY_PORT_BLACKLIST:-443}"
     "${REALITY_PORT_WHITELIST:-8443}"
     "$mt_port"

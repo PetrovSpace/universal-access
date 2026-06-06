@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
-# lib/xray.sh — Xray-core (VLESS + Reality): два inbound'а на одном инстансе.
-#   443  — blacklist-режим (нейтральный иностранный SNI, для Happ).
-#   8443 — whitelist-режим (разрешённый RU-ресурс, для мобильных RU/ТСПУ).
+# lib/xray.sh — Xray-core (VLESS + Reality): три inbound'а на одном инстансе.
+#   2053 — gRPC-режим (ОСНОВНОЙ: обходит детект почерка raw-TCP абонентским/моб. DPI РФ).
+#   443  — blacklist-режим raw-TCP (план Б, нейтральный иностранный SNI).
+#   8443 — whitelist-режим raw-TCP (план Б, разрешённый RU-ресурс для моб. RU/ТСПУ).
+# gRPC использует те же UUID/ключи Reality, но БЕЗ flow (Vision несовместим с gRPC).
 # Источается ПОСЛЕ lib/common.sh. Не переопределяет функции common.sh.
+#
+# ПЕРСИСТЕНТНОЕ СОСТОЯНИЕ (STATE_DIR, не удалять вручную — иначе клиентам нужны новые
+# конфиги/ссылки): xray_reality_private, xray_reality_public, xray_uuid_<client>,
+# xray_shortid_blacklist, xray_shortid_whitelist, xray_shortid_grpc,
+# xray_sni_blacklist, xray_sni_whitelist.
 set -euo pipefail
 
 # Пути и константы Xray.
@@ -10,6 +17,10 @@ XRAY_BIN="${XRAY_BIN:-/usr/local/bin/xray}"
 XRAY_CONFIG_DIR="${XRAY_CONFIG_DIR:-/usr/local/etc/xray}"
 XRAY_CONFIG="${XRAY_CONFIG:-$XRAY_CONFIG_DIR/config.json}"
 XRAY_INSTALL_URL="${XRAY_INSTALL_URL:-https://github.com/XTLS/Xray-install/raw/main/install-release.sh}"
+
+# Генератор полноценных Happ-конфигов (gRPC + split-routing). Лежит в bin/ репо.
+_XRAY_LIB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+GEN_CLIENT_PY="${GEN_CLIENT_PY:-${_XRAY_LIB_DIR}/../bin/gen-client-config.py}"
 
 # ---------------------------------------------------------------------------
 # Установка Xray-core через официальный скрипт (идемпотентно).
@@ -19,7 +30,7 @@ _xray_install_core() {
     log_ok "Xray-core уже установлен: $("$XRAY_BIN" version 2>/dev/null | head -n1 || echo '?')"
     return 0
   fi
-  ensure_packages curl ca-certificates unzip jq
+  ensure_packages curl ca-certificates unzip jq python3
   log_info "Установка Xray-core через официальный скрипт..."
   # @ install — ставит ядро + geodata, systemd-юнит xray.service, User=nobody.
   if ! bash -c "$(curl -fsSL "$XRAY_INSTALL_URL")" @ install >/dev/null 2>&1; then
@@ -200,14 +211,16 @@ _xray_client_uuid() {
 #                   SID_BLACKLIST, SID_WHITELIST, CLIENTS[].
 # ---------------------------------------------------------------------------
 _xray_build_config() {
-  local tmp clients_json client uuid
+  local tmp clients_json clients_grpc_json client uuid
   # Суффикс .json ОБЯЗАТЕЛЕН: `xray run -test -config FILE` определяет формат
   # по расширению; без .json — «Failed to get format» и тест валится.
   tmp="$(mktemp --suffix=.json)" || tmp="$(mktemp)" || die "mktemp не сработал."
   case "$tmp" in *.json) ;; *) mv -f "$tmp" "$tmp.json" && tmp="$tmp.json" ;; esac
 
-  # Массив clients (один и тот же набор клиентов на оба inbound'а).
-  clients_json='[]'
+  # Два набора clients с ОДНИМИ И ТЕМИ ЖЕ UUID:
+  #   clients_json      — для raw-TCP инбаундов (flow xtls-rprx-vision);
+  #   clients_grpc_json — для gRPC инбаунда (flow ПУСТОЙ: Vision несовместим с gRPC).
+  clients_json='[]'; clients_grpc_json='[]'
   for client in "${CLIENTS[@]}"; do
     uuid="$(_xray_client_uuid "$client")"
     [[ -n "$uuid" ]] || die "Пустой UUID для клиента '${client}'."
@@ -216,21 +229,63 @@ _xray_build_config() {
       --arg email "$client" \
       '. + [{"id":$id,"flow":"xtls-rprx-vision","email":$email}]' \
       <<<"$clients_json")" || die "jq: не удалось добавить клиента '${client}'."
+    clients_grpc_json="$(jq -c \
+      --arg id "$uuid" \
+      --arg email "${client}-grpc" \
+      '. + [{"id":$id,"email":$email}]' \
+      <<<"$clients_grpc_json")" || die "jq: не удалось добавить gRPC-клиента '${client}'."
   done
 
   # Полный конфиг. dest = serverName:443 (TLS-проксирование к реальному сайту).
   jq -n \
     --argjson clients "$clients_json" \
+    --argjson clients_grpc "$clients_grpc_json" \
     --argjson port_bl "$REALITY_PORT_BLACKLIST" \
     --argjson port_wl "$REALITY_PORT_WHITELIST" \
+    --argjson port_grpc "${REALITY_PORT_GRPC:-2053}" \
     --arg priv "$REALITY_PRIV" \
     --arg sni_bl "$SNI_BLACKLIST" \
     --arg sni_wl "$SNI_WHITELIST" \
     --arg sid_bl "$SID_BLACKLIST" \
     --arg sid_wl "$SID_WHITELIST" \
+    --arg sid_grpc "$SID_GRPC" \
+    --arg grpc_service "${GRPC_SERVICE_NAME:-grpc}" \
     '{
       "log": { "loglevel": "warning" },
       "inbounds": [
+        {
+          "tag": "vless-reality-grpc",
+          "listen": "0.0.0.0",
+          "port": $port_grpc,
+          "protocol": "vless",
+          "settings": {
+            "clients": $clients_grpc,
+            "decryption": "none"
+          },
+          "streamSettings": {
+            "network": "grpc",
+            "security": "reality",
+            "realitySettings": {
+              "show": false,
+              "dest": ($sni_bl + ":443"),
+              "xver": 0,
+              "serverNames": [ $sni_bl ],
+              "privateKey": $priv,
+              "shortIds": [ "", $sid_grpc ]
+            },
+            "grpcSettings": {
+              "serviceName": $grpc_service,
+              "idle_timeout": 60,
+              "health_check_timeout": 20,
+              "permit_without_stream": true
+            }
+          },
+          "sniffing": {
+            "enabled": true,
+            "destOverride": [ "http", "tls", "quic" ],
+            "routeOnly": true
+          }
+        },
         {
           "tag": "vless-reality-blacklist",
           "listen": "0.0.0.0",
@@ -319,17 +374,69 @@ _xray_vless_link() {
     "$uuid" "$PUBLIC_IP" "$port" "$sni" "$pub" "$sid" "$frag"
 }
 
+_xray_vless_link_grpc() {
+  # _xray_vless_link_grpc UUID PORT SNI SHORTID PUBKEY SERVICE LABEL
+  # gRPC: без flow (Vision несовместим), type=grpc, serviceName, mode=gun (одиночный поток).
+  local uuid="$1" port="$2" sni="$3" sid="$4" pub="$5" svc="$6" label="$7"
+  local frag svc_enc
+  frag="$(_xray_url_encode "$label")"
+  svc_enc="$(_xray_url_encode "$svc")"
+  printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&spx=%%2F&type=grpc&serviceName=%s&mode=gun#%s\n' \
+    "$uuid" "$PUBLIC_IP" "$port" "$sni" "$pub" "$sid" "$svc_enc" "$frag"
+}
+
+_xray_emit_split_json() {
+  # Best-effort: пишет vless-grpc-<client>.json (gRPC + split-routing RU-direct)
+  # через bin/gen-client-config.py. Никогда не роняет установку (return 0), но при
+  # НЕОЖИДАННОМ сбое (python сломан/ошибка генератора) — предупреждает в лог.
+  local client="$1" uuid="$2" out="$CLIENTS_DIR/vless-grpc-${client}.json" err
+  command -v python3 >/dev/null 2>&1 || return 0       # ожидаемо: нет python3 — молча
+  [[ -f "$GEN_CLIENT_PY" ]] || return 0                # ожидаемо: нет генератора — молча
+  # Требуемые глобалы должны быть заполнены вызывающим (xray_install/xray_apply_sni).
+  if [[ -z "$SNI_BLACKLIST" || -z "$REALITY_PUB" || -z "$SID_GRPC" ]]; then
+    log_warn "Split-routing JSON пропущен: пусто SNI_BLACKLIST/REALITY_PUB/SID_GRPC."
+    return 0
+  fi
+  [[ -d "$CLIENTS_DIR" ]] || { log_warn "Split-routing JSON пропущен: нет ${CLIENTS_DIR}."; return 0; }
+  if err="$(python3 "$GEN_CLIENT_PY" --id "$uuid" --host "$PUBLIC_IP" \
+       --port "${REALITY_PORT_GRPC:-2053}" --sni "$SNI_BLACKLIST" --pbk "$REALITY_PUB" \
+       --sid "$SID_GRPC" --net grpc --flow "" --fp chrome \
+       --grpc-service "${GRPC_SERVICE_NAME:-grpc}" \
+       --remark "RU gRPC ${client}" --out "$out" 2>&1)"; then
+    chmod 0600 "$out" 2>/dev/null || true
+    log_ok "Split-routing конфиг: ${out}"
+  else
+    log_warn "Split-routing JSON не создан (python): ${err}"
+  fi
+  return 0
+}
+
 _xray_write_client_files() {
-  # Пишет vless-reality-<c>.txt (443) и vless-whitelist-<c>.txt (8443).
-  local client uuid f_bl f_wl
+  # ОСНОВНОЙ путь — gRPC (vless-grpc-<c>.txt + .json со split-routing).
+  # ПЛАН Б — raw-TCP blacklist :443 и whitelist :8443 (vless-reality/whitelist-<c>.txt).
+  local client uuid f_grpc f_bl f_wl
   for client in "${CLIENTS[@]}"; do
     uuid="$(_xray_client_uuid "$client")"
+    f_grpc="$CLIENTS_DIR/vless-grpc-${client}.txt"
     f_bl="$CLIENTS_DIR/vless-reality-${client}.txt"
     f_wl="$CLIENTS_DIR/vless-whitelist-${client}.txt"
 
     {
-      printf '# VLESS + Reality (blacklist, %s) — клиент: %s\n' "$REALITY_PORT_BLACKLIST" "$client"
-      printf '# Приложение: Happ / любой VLESS-Reality клиент. Основной путь.\n'
+      printf '# VLESS + Reality gRPC (порт %s) — клиент: %s\n' "${REALITY_PORT_GRPC:-2053}" "$client"
+      printf '# ОСНОВНОЙ путь: gRPC обходит детект почерка raw-TCP абонентским/мобильным DPI РФ.\n'
+      printf '# Приложение Happ: импортируй .json (vless-grpc-%s.json) для split-routing, или ссылку ниже.\n' "$client"
+      printf '# SNI: %s ; serviceName: %s\n\n' "$SNI_BLACKLIST" "${GRPC_SERVICE_NAME:-grpc}"
+      _xray_vless_link_grpc "$uuid" "${REALITY_PORT_GRPC:-2053}" "$SNI_BLACKLIST" \
+        "$SID_GRPC" "$REALITY_PUB" "${GRPC_SERVICE_NAME:-grpc}" "grpc-${client}"
+    } >"$f_grpc" || die "Не удалось записать ${f_grpc}."
+    chmod 0600 "$f_grpc" || true
+
+    # Полный конфиг со split-routing (best-effort, если есть python3+генератор).
+    _xray_emit_split_json "$client" "$uuid"
+
+    {
+      printf '# [ПЛАН Б] VLESS + Reality raw-TCP (blacklist, %s) — клиент: %s\n' "$REALITY_PORT_BLACKLIST" "$client"
+      printf '# Резерв, если gRPC перестанет работать. На жёстком DPI РФ raw-TCP часто режется.\n'
       printf '# SNI: %s\n\n' "$SNI_BLACKLIST"
       _xray_vless_link "$uuid" "$REALITY_PORT_BLACKLIST" "$SNI_BLACKLIST" \
         "$SID_BLACKLIST" "$REALITY_PUB" "reality-${client}"
@@ -337,15 +444,15 @@ _xray_write_client_files() {
     chmod 0600 "$f_bl" || true
 
     {
-      printf '# VLESS + Reality (whitelist, %s) — клиент: %s\n' "$REALITY_PORT_WHITELIST" "$client"
-      printf '# Переключайтесь сюда, когда основной перестаёт работать на мобильном (RU/ТСПУ).\n'
+      printf '# [ПЛАН Б] VLESS + Reality raw-TCP (whitelist, %s) — клиент: %s\n' "$REALITY_PORT_WHITELIST" "$client"
+      printf '# Резерв для мобильных RU/ТСПУ (разрешённый RU-SNI).\n'
       printf '# SNI (разрешённый RU-ресурс): %s\n\n' "$SNI_WHITELIST"
       _xray_vless_link "$uuid" "$REALITY_PORT_WHITELIST" "$SNI_WHITELIST" \
         "$SID_WHITELIST" "$REALITY_PUB" "whitelist-${client}"
     } >"$f_wl" || die "Не удалось записать ${f_wl}."
     chmod 0600 "$f_wl" || true
 
-    log_ok "Ссылки клиента '${client}': ${f_bl}, ${f_wl}"
+    log_ok "Клиент '${client}': ОСНОВНОЙ ${f_grpc} (+.json), план Б ${f_bl}, ${f_wl}"
   done
 }
 
@@ -397,7 +504,8 @@ xray_install() {
   # shortId на каждый inbound (стабильные, через state).
   SID_BLACKLIST="$(state_get_or_create xray_shortid_blacklist _xray_short_id)"
   SID_WHITELIST="$(state_get_or_create xray_shortid_whitelist _xray_short_id)"
-  [[ -n "$SID_BLACKLIST" && -n "$SID_WHITELIST" ]] || die "Не удалось получить shortId."
+  SID_GRPC="$(state_get_or_create xray_shortid_grpc _xray_short_id)"
+  [[ -n "$SID_BLACKLIST" && -n "$SID_WHITELIST" && -n "$SID_GRPC" ]] || die "Не удалось получить shortId."
 
   # Выбор SNI (идемпотентно): сохранённое в state значение используется КАК ЕСТЬ,
   # без повторной сетевой проверки — иначе транзиентный сбой пробы ротировал бы SNI
@@ -416,7 +524,7 @@ xray_install() {
   # Клиентские файлы со ссылками.
   _xray_write_client_files
 
-  log_ok "Xray готов: blacklist :${REALITY_PORT_BLACKLIST}, whitelist :${REALITY_PORT_WHITELIST}."
+  log_ok "Xray готов: gRPC :${REALITY_PORT_GRPC:-2053} (основной), blacklist :${REALITY_PORT_BLACKLIST}, whitelist :${REALITY_PORT_WHITELIST} (план Б)."
 }
 
 # ---------------------------------------------------------------------------
@@ -444,6 +552,7 @@ xray_apply_sni() {
   _xray_reality_keys
   SID_BLACKLIST="$(state_get_or_create xray_shortid_blacklist _xray_short_id)"
   SID_WHITELIST="$(state_get_or_create xray_shortid_whitelist _xray_short_id)"
+  SID_GRPC="$(state_get_or_create xray_shortid_grpc _xray_short_id)"
 
   if [[ "$mode" == "blacklist" ]]; then
     SNI_BLACKLIST="$domain"; state_set xray_sni_blacklist "$domain"

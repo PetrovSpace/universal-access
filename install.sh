@@ -182,10 +182,12 @@ _write_summary() {
     printf '==================================================================\n\n'
 
     printf 'ПОРТЫ И СЕРВИСЫ:\n'
-    printf '  - AmneziaWG 2.0       %s:%s/udp   (основной путь)\n' "$PUBLIC_IP" "$AWG_PORT"
-    printf '  - VLESS+Reality       %s:%s/tcp   (blacklist, SNI=%s) — для Happ\n' \
+    printf '  - VLESS+Reality gRPC  %s:%s/tcp  (ОСНОВНОЙ, SNI=%s) — обходит DPI РФ\n' \
+      "$PUBLIC_IP" "${REALITY_PORT_GRPC:-2053}" "$(state_get xray_sni_blacklist)"
+    printf '  - AmneziaWG 2.0       %s:%s/udp   (на сетях с открытым UDP)\n' "$PUBLIC_IP" "$AWG_PORT"
+    printf '  - VLESS+Reality TCP   %s:%s/tcp   (ПЛАН Б blacklist, SNI=%s)\n' \
       "$PUBLIC_IP" "$REALITY_PORT_BLACKLIST" "$(state_get xray_sni_blacklist)"
-    printf '  - VLESS+Reality       %s:%s/tcp  (whitelist, SNI=%s) — моб. RU/ТСПУ\n' \
+    printf '  - VLESS+Reality TCP   %s:%s/tcp  (ПЛАН Б whitelist, SNI=%s)\n' \
       "$PUBLIC_IP" "$REALITY_PORT_WHITELIST" "$(state_get xray_sni_whitelist)"
     printf '  - MTProto (mtg)       %s:%s/tcp  (fake-TLS под %s)\n' \
       "$PUBLIC_IP" "${MTPROTO_PORT}" "$MTPROTO_MASK_DOMAIN"
@@ -195,9 +197,11 @@ _write_summary() {
     printf '\n'
 
     printf 'КАКОЙ ФАЙЛ -> В КАКОЕ ПРИЛОЖЕНИЕ:\n'
-    printf '  amneziawg-<peer>.conf      -> приложение AmneziaWG (1 .conf = 1 устройство)\n'
-    printf '  vless-reality-<client>.txt -> Happ / VLESS-Reality (основной, 443)\n'
-    printf '  vless-whitelist-<client>.txt -> тот же клиент, если основной встал на мобильном (8443)\n'
+    printf '  vless-grpc-<client>.json   -> Happ (ОСНОВНОЙ): gRPC + split-routing (RU напрямую)\n'
+    printf '  vless-grpc-<client>.txt    -> та же gRPC-ссылка без split-routing\n'
+    printf '  vless-reality-<client>.txt -> ПЛАН Б: raw-TCP 443 (если gRPC встал)\n'
+    printf '  vless-whitelist-<client>.txt -> ПЛАН Б: raw-TCP 8443 (моб. RU)\n'
+    printf '  amneziawg-<peer>.conf      -> AmneziaWG (1 .conf = 1 устройство; нужен открытый UDP)\n'
     printf '  telegram-proxy-<client>.txt -> Telegram (tg:// + t.me/proxy)\n'
     if [[ "${ENABLE_HYSTERIA2:-false}" == "true" ]]; then
       printf '  hysteria2-<client>.txt     -> Hysteria2-клиент\n'
@@ -220,18 +224,24 @@ _write_summary() {
     printf -- '------------------------------------------------------------------\n'
     printf 'КЛИЕНТЫ — ССЫЛКИ И ФАЙЛЫ:\n'
     printf -- '------------------------------------------------------------------\n'
-    local client f_bl f_wl f_tg f_hy link
+    local client f_grpc f_bl f_wl f_tg f_hy link
     for client in "${CLIENTS[@]}"; do
+      f_grpc="${CLIENTS_DIR}/vless-grpc-${client}.txt"
       f_bl="${CLIENTS_DIR}/vless-reality-${client}.txt"
       f_wl="${CLIENTS_DIR}/vless-whitelist-${client}.txt"
       f_tg="${CLIENTS_DIR}/telegram-proxy-${client}.txt"
       printf '\n=== Клиент: %s ===\n' "$client"
 
-      printf '  VLESS (blacklist, 443, основной) — %s\n' "$f_bl"
+      printf '  VLESS gRPC (%s, ОСНОВНОЙ) — %s (+%s)\n' \
+        "${REALITY_PORT_GRPC:-2053}" "$f_grpc" "${CLIENTS_DIR}/vless-grpc-${client}.json"
+      link=$(grep -m1 '^vless://' "$f_grpc" 2>/dev/null || true)
+      [[ -n "$link" ]] && printf '    %s\n' "$link"
+
+      printf '  VLESS raw-TCP (blacklist, %s, ПЛАН Б) — %s\n' "$REALITY_PORT_BLACKLIST" "$f_bl"
       link=$(grep -m1 '^vless://' "$f_bl" 2>/dev/null || true)
       [[ -n "$link" ]] && printf '    %s\n' "$link"
 
-      printf '  VLESS (whitelist, 8443, для моб. RU) — %s\n' "$f_wl"
+      printf '  VLESS raw-TCP (whitelist, %s, ПЛАН Б) — %s\n' "$REALITY_PORT_WHITELIST" "$f_wl"
       link=$(grep -m1 '^vless://' "$f_wl" 2>/dev/null || true)
       [[ -n "$link" ]] && printf '    %s\n' "$link"
 
